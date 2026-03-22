@@ -1,0 +1,17 @@
+{
+  "name": "@agent-bridge/mcp-plugin",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@agent-bridge/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.10.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0"
+  }
+}

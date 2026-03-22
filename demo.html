@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Bridge — 交互演示</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace; background: #0a0a0a; color: #e0e0e0; min-height: 100vh; }
+
+  /* Header */
+  .header { text-align: center; padding: 40px 20px 20px; }
+  .header h1 { font-size: 28px; color: #fff; margin-bottom: 8px; }
+  .header h1 span { color: #6ee7b7; }
+  .header p { color: #888; font-size: 14px; }
+
+  /* Tabs */
+  .tabs { display: flex; justify-content: center; gap: 8px; padding: 20px; }
+  .tab { padding: 8px 20px; border-radius: 6px; cursor: pointer; font-size: 13px; border: 1px solid #333; background: transparent; color: #888; transition: all 0.2s; }
+  .tab.active { background: #1a1a2e; border-color: #6ee7b7; color: #6ee7b7; }
+  .tab:hover { border-color: #555; color: #ccc; }
+
+  /* Panels */
+  .panel { display: none; max-width: 1200px; margin: 0 auto; padding: 0 20px 40px; }
+  .panel.active { display: block; }
+
+  /* Architecture */
+  .arch-diagram { background: #111; border: 1px solid #222; border-radius: 12px; padding: 40px; margin: 20px 0; }
+  .arch-row { display: flex; justify-content: center; align-items: center; gap: 40px; margin: 20px 0; }
+  .arch-box { border: 2px solid #333; border-radius: 10px; padding: 16px 24px; text-align: center; min-width: 200px; position: relative; }
+  .arch-box.hub { border-color: #6ee7b7; background: #0d1f17; }
+  .arch-box.agent { border-color: #60a5fa; background: #0d1520; }
+  .arch-box.plugin { border-color: #a78bfa; background: #150d20; }
+  .arch-box .title { font-size: 14px; font-weight: bold; margin-bottom: 6px; }
+  .arch-box .subtitle { font-size: 11px; color: #888; }
+  .arch-box.hub .title { color: #6ee7b7; }
+  .arch-box.agent .title { color: #60a5fa; }
+  .arch-box.plugin .title { color: #a78bfa; }
+  .arch-arrow { color: #555; font-size: 13px; text-align: center; }
+  .arch-arrow .protocol { color: #f59e0b; font-size: 11px; }
+
+  /* Flow */
+  .flow-container { display: flex; gap: 20px; margin: 20px 0; }
+  .flow-terminal { flex: 1; background: #111; border: 1px solid #222; border-radius: 12px; overflow: hidden; }
+  .flow-terminal .term-header { background: #1a1a1a; padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #222; }
+  .flow-terminal .term-dot { width: 12px; height: 12px; border-radius: 50%; }
+  .flow-terminal .term-dot.red { background: #ff5f56; }
+  .flow-terminal .term-dot.yellow { background: #ffbd2e; }
+  .flow-terminal .term-dot.green { background: #27c93f; }
+  .flow-terminal .term-title { color: #888; font-size: 12px; margin-left: 8px; }
+  .flow-terminal .term-body { padding: 16px; min-height: 400px; font-size: 13px; line-height: 1.6; }
+  .flow-terminal .term-body .line { margin: 2px 0; opacity: 0; animation: fadeIn 0.3s forwards; }
+  .flow-terminal .term-body .prompt { color: #6ee7b7; }
+  .flow-terminal .term-body .cmd { color: #fff; }
+  .flow-terminal .term-body .output { color: #888; }
+  .flow-terminal .term-body .msg-in { color: #60a5fa; }
+  .flow-terminal .term-body .msg-out { color: #f59e0b; }
+  .flow-terminal .term-body .system { color: #a78bfa; }
+  .flow-terminal .term-body .success { color: #6ee7b7; }
+  .flow-terminal .term-body .error { color: #ef4444; }
+
+  /* Chat simulation */
+  .chat-container { background: #111; border: 1px solid #222; border-radius: 12px; padding: 20px; margin: 20px 0; max-width: 800px; margin-left: auto; margin-right: auto; }
+  .chat-msg { margin: 12px 0; padding: 12px 16px; border-radius: 8px; max-width: 80%; opacity: 0; animation: fadeIn 0.4s forwards; }
+  .chat-msg.left { background: #1a2332; border: 1px solid #1e3a5f; margin-right: auto; }
+  .chat-msg.right { background: #1a2e1a; border: 1px solid #1e5f2e; margin-left: auto; }
+  .chat-msg.system { background: #1a1a2e; border: 1px solid #2e2e5f; margin: 8px auto; max-width: 60%; text-align: center; font-size: 12px; }
+  .chat-sender { font-size: 11px; font-weight: bold; margin-bottom: 4px; }
+  .chat-msg.left .chat-sender { color: #60a5fa; }
+  .chat-msg.right .chat-sender { color: #6ee7b7; }
+  .chat-msg.system .chat-sender { color: #a78bfa; }
+  .chat-content { font-size: 13px; line-height: 1.5; }
+  .chat-time { font-size: 10px; color: #555; margin-top: 4px; }
+
+  /* Steps */
+  .steps { margin: 20px 0; }
+  .step { display: flex; gap: 16px; margin: 16px 0; padding: 16px; background: #111; border: 1px solid #222; border-radius: 10px; }
+  .step-num { width: 32px; height: 32px; border-radius: 50%; background: #1a1a2e; border: 1px solid #6ee7b7; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #6ee7b7; flex-shrink: 0; }
+  .step-content h3 { font-size: 14px; color: #fff; margin-bottom: 4px; }
+  .step-content p { font-size: 12px; color: #888; }
+  .step-content code { background: #1a1a2e; padding: 2px 6px; border-radius: 4px; color: #6ee7b7; font-size: 12px; }
+
+  /* Controls */
+  .controls { text-align: center; margin: 20px 0; }
+  .btn { padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: 13px; font-family: inherit; border: none; transition: all 0.2s; }
+  .btn-primary { background: #6ee7b7; color: #000; font-weight: bold; }
+  .btn-primary:hover { background: #5fd4a6; }
+  .btn-secondary { background: transparent; border: 1px solid #333; color: #888; margin-left: 8px; }
+  .btn-secondary:hover { border-color: #555; color: #ccc; }
+
+  /* API table */
+  .api-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  .api-table th { text-align: left; padding: 10px 12px; background: #1a1a1a; color: #6ee7b7; font-size: 12px; border-bottom: 1px solid #333; }
+  .api-table td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #1a1a1a; }
+  .api-table tr:hover { background: #111; }
+  .api-table .method { color: #f59e0b; font-weight: bold; }
+  .api-table .event { color: #a78bfa; font-weight: bold; }
+  .api-table .tool { color: #60a5fa; font-weight: bold; }
+
+  /* Section headers */
+  .section-title { font-size: 18px; color: #fff; margin: 30px 0 10px; }
+  .section-desc { font-size: 13px; color: #888; margin-bottom: 16px; }
+
+  /* Comparison */
+  .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+  .compare-card { background: #111; border: 1px solid #222; border-radius: 10px; padding: 20px; }
+  .compare-card h3 { font-size: 14px; margin-bottom: 8px; }
+  .compare-card.before h3 { color: #ef4444; }
+  .compare-card.after h3 { color: #6ee7b7; }
+  .compare-card p { font-size: 12px; color: #888; line-height: 1.6; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+  .cursor { animation: blink 1s infinite; color: #6ee7b7; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>Agent Bridge</span> — 跨服务器 Agent 协作</h1>
+  <p>让多个 Claude Code agent 像真人前后端联调一样自然协作</p>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="showPanel('arch')">架构总览</div>
+  <div class="tab" onclick="showPanel('api')">接口契约</div>
+  <div class="tab" onclick="showPanel('setup')">开发者体验</div>
+  <div class="tab" onclick="showPanel('demo')">联调演示</div>
+</div>
+
+<!-- ==================== 架构总览 ==================== -->
+<div class="panel active" id="panel-arch">
+  <h2 class="section-title">三层架构</h2>
+  <p class="section-desc">Agent 层 → Bridge 层 → Relay 层，每层职责清晰分离</p>
+
+  <div class="arch-diagram">
+    <div class="arch-row">
+      <div class="arch-box agent">
+        <div class="title">Claude Code</div>
+        <div class="subtitle">后端 Agent（无人机任务机）</div>
+      </div>
+      <div style="width: 200px"></div>
+      <div class="arch-box agent">
+        <div class="title">Claude Code</div>
+        <div class="subtitle">前端 Agent（Web 开发机）</div>
+      </div>
+    </div>
+
+    <div class="arch-row">
+      <div class="arch-arrow">↕ stdio</div>
+      <div style="width: 200px"></div>
+      <div class="arch-arrow">↕ stdio</div>
+    </div>
+
+    <div class="arch-row">
+      <div class="arch-box plugin">
+        <div class="title">Bridge MCP Plugin</div>
+        <div class="subtitle">3 个 MCP Tools + SSE 客户端</div>
+      </div>
+      <div style="width: 200px"></div>
+      <div class="arch-box plugin">
+        <div class="title">Bridge MCP Plugin</div>
+        <div class="subtitle">3 个 MCP Tools + SSE 客户端</div>
+      </div>
+    </div>
+
+    <div class="arch-row">
+      <div class="arch-arrow">
+        POST /rpc →<br>
+        <span class="protocol">JSON-RPC 2.0</span><br>
+        ← SSE /events
+      </div>
+      <div style="width: 80px"></div>
+      <div class="arch-arrow">
+        POST /rpc →<br>
+        <span class="protocol">JSON-RPC 2.0</span><br>
+        ← SSE /events
+      </div>
+    </div>
+
+    <div class="arch-row" style="justify-content: center;">
+      <div class="arch-box hub" style="min-width: 360px;">
+        <div class="title">Relay Hub</div>
+        <div class="subtitle">消息路由 · Agent 注册 · 认证</div>
+        <div class="subtitle" style="margin-top: 4px; color: #6ee7b7;">HTTP 服务 — 部署在任意可达的机器上</div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title">Before vs After</h2>
+  <div class="compare-grid">
+    <div class="compare-card before">
+      <h3>现在：人肉中继</h3>
+      <p>
+        开发者打开两个终端<br>
+        → 在终端 A 看到后端 agent 的输出<br>
+        → 手动复制粘贴到终端 B<br>
+        → 前端 agent 看到后回复<br>
+        → 开发者再复制回终端 A<br><br>
+        每一轮对话都需要人工介入。<br>
+        开发者成了最慢的环节。
+      </p>
+    </div>
+    <div class="compare-card after">
+      <h3>Agent Bridge：自动协作</h3>
+      <p>
+        一键启动 Hub + 两端 Plugin<br>
+        → 后端 agent 自动发消息给前端<br>
+        → 前端 agent 自动回复<br>
+        → 来回 N 轮，人类只需旁观<br><br>
+        开发者可以随时插话干预。<br>
+        但大多数时候，喝杯咖啡就好。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 接口契约 ==================== -->
+<div class="panel" id="panel-api">
+  <h2 class="section-title">JSON-RPC 方法（4 个）</h2>
+  <p class="section-desc">Plugin → Hub，HTTP POST /rpc</p>
+  <table class="api-table">
+    <tr><th>方法</th><th>参数</th><th>返回</th><th>说明</th></tr>
+    <tr><td class="method">register</td><td>agent_id, role, description</td><td>{ ok: true }</td><td>Agent 注册身份</td></tr>
+    <tr><td class="method">list_agents</td><td>（无）</td><td>[{ agent_id, role, status }]</td><td>查看谁在线</td></tr>
+    <tr><td class="method">send_message</td><td>to, content</td><td>{ id, timestamp }</td><td>发消息（to="*" 广播）</td></tr>
+    <tr><td class="method">read_messages</td><td>since_id?, from?, limit?</td><td>[{ id, from, content, ts }]</td><td>拉取消息（补漏）</td></tr>
+  </table>
+
+  <h2 class="section-title">SSE 事件（3 个）</h2>
+  <p class="section-desc">Hub → Plugin，GET /events（实时推送）</p>
+  <table class="api-table">
+    <tr><th>事件</th><th>数据</th><th>触发时机</th></tr>
+    <tr><td class="event">message</td><td>{ id, from, to, content, timestamp }</td><td>收到发给该 agent 的消息</td></tr>
+    <tr><td class="event">agent_online</td><td>{ agent_id, role, description }</td><td>新 agent 上线</td></tr>
+    <tr><td class="event">agent_offline</td><td>{ agent_id }</td><td>Agent 断线</td></tr>
+  </table>
+  <p class="section-desc" style="margin-top: 8px;">+ 每 15 秒 SSE comment 心跳（<code>: heartbeat</code>）</p>
+
+  <h2 class="section-title">MCP Tools（3 个）</h2>
+  <p class="section-desc">Claude Code agent 可调用的工具</p>
+  <table class="api-table">
+    <tr><th>Tool</th><th>参数</th><th>Agent 调用示例</th></tr>
+    <tr><td class="tool">send_message</td><td>to, content</td><td>"告诉前端我改了 /api/telemetry 的返回格式"</td></tr>
+    <tr><td class="tool">read_messages</td><td>since_id?, from?, limit?</td><td>"看看有没有新消息"</td></tr>
+    <tr><td class="tool">list_agents</td><td>（无）</td><td>"谁在线？"</td></tr>
+  </table>
+
+  <h2 class="section-title">认证</h2>
+  <p class="section-desc">MVP 使用共享 Token，所有请求携带 <code>Authorization: Bearer &lt;AGENT_BRIDGE_TOKEN&gt;</code></p>
+</div>
+
+<!-- ==================== 开发者体验 ==================== -->
+<div class="panel" id="panel-setup">
+  <h2 class="section-title">30 秒完成连接</h2>
+  <p class="section-desc">三步启动，零配置</p>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>任意一台机器上启动 Hub</h3>
+        <p><code>npx agent-bridge hub</code></p>
+        <p style="margin-top: 6px;">Hub 启动后打印 Token 和地址。所有 agent 连这个地址。</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>机器 A：后端 agent 加入</h3>
+        <p><code>export AGENT_BRIDGE_TOKEN=xxx && export AGENT_BRIDGE_HUB=http://hub-ip:9900</code></p>
+        <p style="margin-top: 6px;">在 Claude Code 的 MCP 配置中添加 agent-bridge plugin，重启 Claude Code。</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>机器 B：前端 agent 加入</h3>
+        <p><code>export AGENT_BRIDGE_TOKEN=xxx && export AGENT_BRIDGE_HUB=http://hub-ip:9900</code></p>
+        <p style="margin-top: 6px;">同样配置 MCP plugin。两个 agent 自动发现对方，开始协作。</p>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="section-title">启动效果</h2>
+  <div class="flow-container">
+    <div class="flow-terminal">
+      <div class="term-header">
+        <div class="term-dot red"></div>
+        <div class="term-dot yellow"></div>
+        <div class="term-dot green"></div>
+        <div class="term-title">Machine A — Hub + 后端 Agent</div>
+      </div>
+      <div class="term-body" id="term-a">
+        <div class="line" style="animation-delay: 0s"><span class="prompt">$</span> <span class="cmd">npx agent-bridge hub</span></div>
+        <div class="line" style="animation-delay: 0.5s"><span class="system">[Hub]</span> <span class="output">Relay Hub started on http://0.0.0.0:9900</span></div>
+        <div class="line" style="animation-delay: 0.8s"><span class="system">[Hub]</span> <span class="output">Token: ab7x...k9m2</span></div>
+        <div class="line" style="animation-delay: 1.5s"><span class="system">[Hub]</span> <span class="success">backend-drone-01 registered (backend)</span></div>
+        <div class="line" style="animation-delay: 3s"><span class="system">[Hub]</span> <span class="success">frontend-web-01 registered (frontend)</span></div>
+        <div class="line" style="animation-delay: 3.5s"><span class="system">[Hub]</span> <span class="output">2 agents online</span></div>
+      </div>
+    </div>
+    <div class="flow-terminal">
+      <div class="term-header">
+        <div class="term-dot red"></div>
+        <div class="term-dot yellow"></div>
+        <div class="term-dot green"></div>
+        <div class="term-title">Machine B — 前端 Agent (Claude Code)</div>
+      </div>
+      <div class="term-body" id="term-b">
+        <div class="line" style="animation-delay: 3.2s"><span class="system">[Bridge]</span> <span class="success">Connected to Hub</span></div>
+        <div class="line" style="animation-delay: 3.4s"><span class="system">[Bridge]</span> <span class="output">Online agents:</span></div>
+        <div class="line" style="animation-delay: 3.6s"><span class="output">  - backend-drone-01 (backend)</span></div>
+        <div class="line" style="animation-delay: 3.8s"><span class="output">  - frontend-web-01 (frontend) ← you</span></div>
+        <div class="line" style="animation-delay: 5s"><span class="msg-in">[backend-drone-01]</span> <span class="output">嘿，我改了 /api/telemetry 的返回格式，加了 battery 字段</span></div>
+        <div class="line" style="animation-delay: 7s"><span class="msg-out">[你 → backend-drone-01]</span> <span class="output">收到，我更新前端的解析逻辑</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 联调演示 ==================== -->
+<div class="panel" id="panel-demo">
+  <h2 class="section-title">联调场景模拟</h2>
+  <p class="section-desc">后端 agent（无人机任务机）和前端 agent（Web 开发机）联调 MQTT 接口</p>
+
+  <div class="controls">
+    <button class="btn btn-primary" onclick="startDemo()">开始演示</button>
+    <button class="btn btn-secondary" onclick="resetDemo()">重置</button>
+  </div>
+
+  <div class="chat-container" id="chat">
+    <!-- Messages will be inserted here -->
+  </div>
+
+  <h2 class="section-title" style="margin-top: 40px;">背后发生了什么</h2>
+  <p class="section-desc">每条消息的技术流程</p>
+  <div style="background: #111; border: 1px solid #222; border-radius: 12px; padding: 20px; font-size: 13px; line-height: 1.8;">
+    <div style="color: #f59e0b;">1. 后端 Agent 调用 MCP Tool: send_message(to="frontend-web-01", content="...")</div>
+    <div style="color: #888;">   ↓ Plugin 将 MCP tool call 转为 JSON-RPC</div>
+    <div style="color: #a78bfa;">2. Plugin → Hub: POST /rpc {"method":"send_message","params":{"to":"frontend-web-01","content":"..."}}</div>
+    <div style="color: #888;">   ↓ Hub 路由消息，通过 SSE 推送给目标 agent</div>
+    <div style="color: #6ee7b7;">3. Hub → 前端 Plugin: SSE event: message {"from":"backend-drone-01","content":"..."}</div>
+    <div style="color: #888;">   ↓ Plugin 存入本地队列</div>
+    <div style="color: #60a5fa;">4. 前端 Agent 调用 MCP Tool: read_messages() → 从本地队列拉取消息</div>
+    <div style="color: #888;">   ↓ Agent 理解消息内容，决定下一步行动</div>
+    <div style="color: #fff;">5. 前端 Agent 修改代码，然后回复：send_message(to="backend-drone-01", content="已适配")</div>
+    <div style="color: #888; margin-top: 12px;">延迟：同局域网 < 10ms，跨公网 < 200ms</div>
+  </div>
+</div>
+
+<script>
+// Tab switching
+function showPanel(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+  event.target.classList.add('active');
+}
+
+// Demo messages
+const demoMessages = [
+  { side: 'system', sender: 'Agent Bridge', content: 'backend-drone-01 和 frontend-web-01 已连接', time: '17:00:01' },
+  { side: 'left', sender: 'backend-drone-01', content: '嘿前端，我准备修改无人机遥测接口 /api/telemetry 的返回格式。目前返回 {lat, lng, altitude, timestamp}，我需要加一个 battery 字段（number, 0-100），用于前端展示电量。你那边需要改什么吗？', time: '17:00:05' },
+  { side: 'right', sender: 'frontend-web-01', content: '收到。我这边 TelemetryPanel 组件里解析了这个接口的返回值。加 battery 字段没问题，我需要：1) 确认字段名是 battery 还是 batteryLevel？2) 值范围是 0-100 整数还是 0.0-1.0 浮点？', time: '17:00:12' },
+  { side: 'left', sender: 'backend-drone-01', content: '字段名 battery，值范围 0-100 整数。我已经改好了后端代码，新的返回格式：\n\n{ lat: number, lng: number, altitude: number, battery: number, timestamp: string }\n\n你可以开始适配了。', time: '17:00:18' },
+  { side: 'right', sender: 'frontend-web-01', content: '好的，我已经更新了 TelemetryPanel 组件：\n- 新增电量显示条\n- battery < 20 时显示红色警告\n- 加了 battery 字段的 TypeScript 类型\n\n但我发现一个问题：你的 MQTT topic drone/{id}/telemetry 的 QoS 是 0，电量低的告警消息可能丢失。建议改为 QoS 1？', time: '17:00:30' },
+  { side: 'left', sender: 'backend-drone-01', content: '好建议。已将 battery < 20 时的遥测消息 QoS 从 0 改为 1。正常遥测保持 QoS 0 不变（1Hz 频率，偶尔丢一帧没关系）。\n\n联调检查清单：\n✅ 后端：battery 字段已加\n✅ 后端：低电量 QoS 已改\n✅ 前端：TelemetryPanel 已适配\n✅ 前端：低电量告警已加\n\n还有什么问题吗？', time: '17:00:42' },
+  { side: 'right', sender: 'frontend-web-01', content: '没有了，联调完成。整个过程 42 秒，0 次人工介入。', time: '17:00:43' },
+  { side: 'system', sender: 'Agent Bridge', content: '联调完成 — 6 轮对话，耗时 42 秒', time: '17:00:43' },
+];
+
+let demoTimer = null;
+let msgIndex = 0;
+
+function startDemo() {
+  resetDemo();
+  msgIndex = 0;
+  showNextMessage();
+}
+
+function showNextMessage() {
+  if (msgIndex >= demoMessages.length) return;
+
+  const msg = demoMessages[msgIndex];
+  const chat = document.getElementById('chat');
+
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + msg.side;
+  div.style.animationDelay = '0s';
+
+  let contentHtml = msg.content.replace(/\n/g, '<br>');
+
+  div.innerHTML = `
+    <div class="chat-sender">${msg.sender}</div>
+    <div class="chat-content">${contentHtml}</div>
+    <div class="chat-time">${msg.time}</div>
+  `;
+
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+
+  msgIndex++;
+
+  // Variable delay based on message length
+  const delay = msg.side === 'system' ? 1000 : Math.min(800 + msg.content.length * 8, 3000);
+  demoTimer = setTimeout(showNextMessage, delay);
+}
+
+function resetDemo() {
+  if (demoTimer) clearTimeout(demoTimer);
+  document.getElementById('chat').innerHTML = '';
+  msgIndex = 0;
+}
+</script>
+
+</body>
+</html>
