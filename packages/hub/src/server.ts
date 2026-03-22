@@ -22,6 +22,7 @@ export function createHub(options: HubOptions) {
   const messageBus = new MessageBus();
   const sseManager = new SseManager();
   const rpc = new RpcDispatcher();
+  const dashboardClients: ServerResponse[] = [];
 
   // --- 注册 RPC handlers ---
 
@@ -41,6 +42,9 @@ export function createHub(options: HubOptions) {
       { agent_id: info.agent_id, role: info.role, description: info.description },
       info.agent_id // 排除自己
     );
+
+    // 通知 dashboard
+    broadcastDashboard(dashboardClients, "agent_online", { agent_id, role, description: description ?? "" });
 
     return { ok: true };
   });
@@ -85,6 +89,9 @@ export function createHub(options: HubOptions) {
       });
     }
 
+    // 通知 dashboard
+    broadcastDashboard(dashboardClients, "message", { id: msg.id, from: msg.from, to: msg.to, content: msg.content, timestamp: msg.timestamp });
+
     return { id: msg.id, timestamp: msg.timestamp };
   });
 
@@ -104,6 +111,7 @@ export function createHub(options: HubOptions) {
   registry.on("agent_offline", (agentId: AgentId) => {
     sseManager.broadcast("agent_offline", { agent_id: agentId });
     sseManager.disconnect(agentId);
+    broadcastDashboard(dashboardClients, "agent_offline", { agent_id: agentId });
   });
 
   // --- HTTP 服务器 ---
@@ -119,6 +127,18 @@ export function createHub(options: HubOptions) {
     if (req.method === "OPTIONS") {
       res.writeHead(204);
       res.end();
+      return;
+    }
+
+    // Dashboard 不需要认证
+    if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/dashboard")) {
+      serveDashboard(res, registry, messageBus);
+      return;
+    }
+
+    // Dashboard SSE 也不需要 token（只读）
+    if (req.method === "GET" && url.pathname === "/dashboard/events") {
+      serveDashboardSse(res, dashboardClients);
       return;
     }
 
@@ -207,4 +227,128 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on("end", () => resolve(Buffer.concat(chunks).toString()));
     req.on("error", reject);
   });
+}
+
+/** Dashboard SSE 广播 */
+function broadcastDashboard(clients: ServerResponse[], event: string, data: unknown) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (let i = clients.length - 1; i >= 0; i--) {
+    try {
+      clients[i].write(payload);
+    } catch {
+      clients.splice(i, 1);
+    }
+  }
+}
+
+/** Dashboard SSE 连接 */
+function serveDashboardSse(res: ServerResponse, clients: ServerResponse[]) {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  res.write(": connected\n\n");
+  clients.push(res);
+  res.on("close", () => {
+    const idx = clients.indexOf(res);
+    if (idx !== -1) clients.splice(idx, 1);
+  });
+}
+
+/** Dashboard HTML */
+function serveDashboard(res: ServerResponse, registry: Registry, messageBus: MessageBus) {
+  const agents = registry.listOnline();
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(`<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Bridge Dashboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'SF Mono','Cascadia Code',monospace;background:#0a0a0a;color:#e0e0e0;padding:20px}
+h1{font-size:20px;color:#6ee7b7;margin-bottom:4px}
+.sub{color:#666;font-size:12px;margin-bottom:20px}
+.agents{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.agent{background:#111;border:1px solid #222;border-radius:8px;padding:10px 16px;font-size:13px}
+.agent .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#6ee7b7;margin-right:6px}
+.agent .role{color:#888;font-size:11px}
+.log{background:#111;border:1px solid #222;border-radius:8px;padding:16px;min-height:400px;max-height:70vh;overflow-y:auto}
+.log-title{font-size:14px;color:#888;margin-bottom:12px}
+.msg{margin:8px 0;padding:8px 12px;border-radius:6px;font-size:13px;animation:fadeIn .3s}
+.msg.m{background:#0d1520;border-left:3px solid #60a5fa}
+.msg.online{background:#0d1f17;border-left:3px solid #6ee7b7}
+.msg.offline{background:#1f0d0d;border-left:3px solid #ef4444}
+.msg .time{color:#555;font-size:11px;margin-right:8px}
+.msg .from{color:#60a5fa;font-weight:bold}
+.msg .arrow{color:#555;margin:0 4px}
+.msg .to{color:#6ee7b7}
+.msg .content{color:#ccc;margin-top:4px}
+.empty{color:#555;font-style:italic;padding:20px;text-align:center}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<h1>Agent Bridge Dashboard</h1>
+<p class="sub">Real-time message log — agents talk, you watch</p>
+
+<div class="agents" id="agents">
+${agents.length === 0 ? '<span style="color:#555">No agents online</span>' : agents.map(a => `<div class="agent"><span class="dot"></span>${a.agent_id} <span class="role">(${a.role})</span></div>`).join("")}
+</div>
+
+<div class="log" id="log">
+<div class="log-title">Message Log (live)</div>
+<div class="empty" id="empty">Waiting for messages...</div>
+</div>
+
+<script>
+const log = document.getElementById("log");
+const agentsDiv = document.getElementById("agents");
+const empty = document.getElementById("empty");
+const agents = new Map();
+${agents.map(a => `agents.set("${a.agent_id}", {role:"${a.role}",desc:"${a.description}"});`).join("\n")}
+
+function addMsg(html) {
+  if (empty) empty.remove();
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+function refreshAgents() {
+  agentsDiv.innerHTML = agents.size === 0
+    ? '<span style="color:#555">No agents online</span>'
+    : [...agents.entries()].map(([id,a]) =>
+        '<div class="agent"><span class="dot"></span>' + id + ' <span class="role">(' + a.role + ')</span></div>'
+      ).join("");
+}
+
+const es = new EventSource("/dashboard/events");
+
+es.addEventListener("message", (e) => {
+  const d = JSON.parse(e.data);
+  const time = new Date(d.timestamp).toLocaleTimeString();
+  const to = d.to === "*" ? "all" : d.to;
+  addMsg('<div class="msg m"><span class="time">' + time + '</span><span class="from">' + d.from + '</span><span class="arrow">→</span><span class="to">' + to + '</span><div class="content">' + d.content.replace(/</g,"&lt;") + '</div></div>');
+});
+
+es.addEventListener("agent_online", (e) => {
+  const d = JSON.parse(e.data);
+  agents.set(d.agent_id, {role: d.role, desc: d.description});
+  refreshAgents();
+  addMsg('<div class="msg online"><span class="time">' + new Date().toLocaleTimeString() + '</span> <strong>' + d.agent_id + '</strong> (' + d.role + ') came online</div>');
+});
+
+es.addEventListener("agent_offline", (e) => {
+  const d = JSON.parse(e.data);
+  agents.delete(d.agent_id);
+  refreshAgents();
+  addMsg('<div class="msg offline"><span class="time">' + new Date().toLocaleTimeString() + '</span> <strong>' + d.agent_id + '</strong> went offline</div>');
+});
+</script>
+</body>
+</html>`);
 }

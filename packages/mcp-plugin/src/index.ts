@@ -24,15 +24,18 @@ import type { Message } from "../../shared/src/types.js";
 
 // --- 读取环境变量 ---
 
+import os from "node:os";
+
 const hubUrl = process.env.AGENT_BRIDGE_HUB;
 const token = process.env.AGENT_BRIDGE_TOKEN;
-const agentId = process.env.AGENT_BRIDGE_AGENT_ID;
 const role = process.env.AGENT_BRIDGE_ROLE ?? "member";
-const description = process.env.AGENT_BRIDGE_DESC ?? "";
+const hostname = os.hostname().split(".")[0].toLowerCase().replace(/[^a-z0-9-]/g, "");
+const agentId = process.env.AGENT_BRIDGE_AGENT_ID ?? `${hostname}-${role}`;
+const description = process.env.AGENT_BRIDGE_DESC ?? `${hostname} (${role})`;
 
-if (!hubUrl || !token || !agentId) {
+if (!hubUrl || !token) {
   console.error(
-    "Missing required env vars: AGENT_BRIDGE_HUB, AGENT_BRIDGE_TOKEN, AGENT_BRIDGE_AGENT_ID"
+    "Missing required env vars: AGENT_BRIDGE_HUB, AGENT_BRIDGE_TOKEN"
   );
   process.exit(1);
 }
@@ -41,7 +44,7 @@ if (!hubUrl || !token || !agentId) {
 
 const hubClient = new HubClient({ hubUrl, token, agentId });
 const messageQueue = new MessageQueue();
-const toolContext = { hubClient, messageQueue };
+const toolContext = { hubClient, messageQueue, myAgentId: agentId };
 
 // SSE 收到消息 → 入队
 hubClient.onEvent((event, data) => {

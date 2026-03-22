@@ -13,6 +13,7 @@ import type {
 export interface ToolContext {
   hubClient: HubClient;
   messageQueue: MessageQueue;
+  myAgentId: string;
 }
 
 export function getToolDefinitions() {
@@ -122,7 +123,7 @@ export async function handleToolCall(
         return agents
           .map(
             (a) =>
-              `- ${a.agent_id} (${a.role}) ${a.status === "online" ? "●" : "○"} ${a.description}`
+              `${a.status === "online" ? "🟢" : "⚪"} ${a.agent_id} (${a.role}) — ${a.description}${a.agent_id === ctx.myAgentId ? "  ← you" : ""}`
           )
           .join("\n");
       }
