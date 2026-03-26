@@ -9,6 +9,7 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "devDependencies": {
+    "@types/node": "^25.5.0",
     "typescript": "^5.4.0",
     "vitest": "^2.0.0"
   },

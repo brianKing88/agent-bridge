@@ -1,0 +1,19 @@
+{
+  "name": "agent-bridge",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "CLI for Agent Bridge — multi-agent collaboration for Claude Code",
+  "bin": {
+    "agent-bridge": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@agent-bridge/hub": "workspace:*",
+    "@agent-bridge/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0"
+  }
+}

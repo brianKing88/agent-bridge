@@ -2,6 +2,10 @@
 /**
  * Agent Bridge MCP Plugin — stdio MCP Server
  *
+ * Starts in DISCONNECTED state. Claude calls `connect` to join the hub.
+ * This allows multiple terminals to have the plugin loaded,
+ * but only the one that needs collaboration actually connects.
+ *
  * 环境变量：
  *   AGENT_BRIDGE_HUB    — Hub 地址 (如 http://100.64.1.1:9900)
  *   AGENT_BRIDGE_TOKEN  — 共享 Token
@@ -21,10 +25,11 @@ import { HubClient } from "./hub-client.js";
 import { MessageQueue } from "./message-queue.js";
 import { getToolDefinitions, handleToolCall } from "./tools.js";
 import type { Message } from "../../shared/src/types.js";
-
-// --- 读取环境变量 ---
+import { notifyUser } from "./notify.js";
 
 import os from "node:os";
+
+// --- 读取环境变量 ---
 
 const hubUrl = process.env.AGENT_BRIDGE_HUB;
 const token = process.env.AGENT_BRIDGE_TOKEN;
@@ -40,16 +45,18 @@ if (!hubUrl || !token) {
   process.exit(1);
 }
 
-// --- 初始化 ---
+// --- 初始化（不连接，等待 connect 调用）---
 
 const hubClient = new HubClient({ hubUrl, token, agentId });
 const messageQueue = new MessageQueue();
-const toolContext = { hubClient, messageQueue, myAgentId: agentId };
+const toolContext = { hubClient, messageQueue, myAgentId: agentId, role, description };
 
-// SSE 收到消息 → 入队
+// SSE 收到消息 → 入队 + 通知人类
 hubClient.onEvent((event, data) => {
   if (event === "message") {
-    messageQueue.push(data as Message);
+    const msg = data as Message;
+    messageQueue.push(msg);
+    notifyUser(msg);
   }
 });
 
@@ -61,7 +68,7 @@ const server = new Server(
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: getToolDefinitions(),
+  tools: getToolDefinitions(hubClient.isConnected),
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -72,25 +79,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   };
 });
 
-// --- 启动 ---
+// --- 启动 MCP server（不连接 Hub）---
 
 async function main() {
-  // 1. 连接 SSE（后台）
-  await hubClient.connectSse();
-
-  // 2. 注册到 Hub
-  try {
-    await hubClient.rpc("register", {
-      agent_id: agentId,
-      role,
-      description,
-    });
-  } catch (err) {
-    console.error(`Failed to register: ${(err as Error).message}`);
-    // 继续运行，可能 Hub 还没启动
-  }
-
-  // 3. 启动 MCP stdio 服务
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
